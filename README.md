@@ -1,5 +1,7 @@
 # Nuclei Linux SDK
 
+[![Build](https://github.com/Nuclei-Software/nuclei-linux-sdk/workflows/Build/badge.svg)](https://github.com/Nuclei-Software/nuclei-linux-sdk/actions)
+
 This will download external prebuilt toolchain, and build linux kernel, device tree, ramdisk,
 and opensbi with linux kernel payload for Nuclei xl-spike which can emulate Nuclei UX600 SoC.
 
@@ -282,7 +284,7 @@ workspace first via `make clean`.
 If you have connected your board to your Linux development environment, and setuped JTAG drivers,
 then you can run `make upload_freeloader` to upload the *freeloader/freeloader.elf* to your board.
 
-You can use riscv-nuclei-elf-gdb and openocd to download this program by yourself.
+You can also use `riscv-nuclei-elf-gdb` and `openocd` to download this program by yourself.
 
 > No need to do the **Build SDCard Boot Images** steps for run linux directly from MCU flash.
 > In this version, `make freeloader` or `make freeloader4m` will generate boot images for you,
@@ -295,15 +297,27 @@ build environment for generate boot images.
 
 If the freeloader is flashed to the board, then you can prepare the SDCard boot materials,
 you can run `make bootimages` to generate the boot images to *work/boot*, and an zip file
-called *work/boot.zip* , you can copy this *boot.zip* file to your SDCard, and extract it,
+called *work/boot.zip* , you can extract this *boot.zip* to your SDCard or copy all the files
+located in *work/boot/*, make sure the files need to be put right in the root of SDCard,
 then you can insert this SDCard to your SDCard slot(J57) beside the TFT LCD.
 
+The contents of *work/boot* or *work/boot.zip* are as below:
+
+* **kernel.dtb**  : device tree binary file
+* **boot.scr**    : boot script used by uboot, generated from [./conf/uboot.cmd](conf/uboot.cmd)
+* **uImage.lz4**  : lz4 archived kernel image
+* **uInitrd.lz4** : lz4 archived rootfs image
+
 > SDCard is recommended to use SDHC format.
+> SDCard need to be formatted to `FAT32` format, with only 1 partition.
 
 ### Run Linux
 
 When all above is done, you can reset the power on board, then opensbi will boot uboot, and
-uboot will automatically load linux image and initramfs from SDCard and boot linux.
+uboot will automatically load linux image and initramfs from SDCard and boot linux if everything
+is prepared correctly.
+
+If you met with issues, please check the [**Known issues**](#known-issues).
 
 The linux login user name and password is *root* and *nuclei*.
 
@@ -611,10 +625,209 @@ This repo is based on opensource repo https://github.com/sifive/freedom-u-sdk/tr
   show timeout issue, this is caused by xl_spike timer is not standard type, but the boot images for FPGA
   board can boot successfully and works well.
 
+  If you want to execute using `xl_spike` without the login, you can edit the *work/buildroot_initramfs_sysroot/etc/inittab* file(started from `# now run any rc scripts`) as below, and save it:
+
+  ~~~
+  # now run any rc scripts
+  #::sysinit:/etc/init.d/rcS
+
+  # Put a getty on the serial port
+  #console::respawn:/sbin/getty -L  console 0 vt100 # GENERIC_SERIAL
+  ::respawn:-/bin/sh
+  ~~~
+
+  And then type `make presim` and `make sim` to run linux in *xl_spike*, you will be able to get following output in final:
+
+  ~~~
+  ## a lot of boot message are reduced here ##
+  UART: [  246.974853] sdhci: Secure Digital Host Controller Interface driver
+  UART: [  247.057922] sdhci: Copyright(c) Pierre Ossman
+  UART: [  247.447723] NET: Registered protocol family 17
+  UART: [  266.205169] Freeing unused kernel memory: 36052K
+  UART: [  266.314117] Run /init as init process
+  UART: # ls
+  ls
+  UART: bin      init     linuxrc  opt      run      tmp
+  UART: dev      lib      media    proc     sbin     usr
+  UART: etc      lib64    mnt      root     sys      var
+  UART: # cat /proc/cpuinfo
+  cat /proc/cpuinfo
+  UART: processor	: 0
+  UART: hart		: 0
+  UART: isa		: rv64imac
+  UART: mmu		: sv39
+  UART: 
+  ~~~
+
 * For UX600FD, if you run simulation using xl_spike, it can only run to init process, then it will enter to
   kernel panic, but the generated boot images works for FPGA board.
 
 * For some SDCard format, it might not be supported, please check your SDCard is SDHC format.
+
+* If you can't boot with the sdcard boot images, you can run the following commands in uboot to check whether sdcard is recognized.
+
+  1. Type `mmcinfo` to check whether sdcard is recognized? If no output, please re-insert the sdcard, and try
+     this command again, if still not working, please confirm that the MCS is correct or not?
+
+     ~~~
+     U-Boot 2020.07-rc2-g89856aea41 (Aug 05 2020 - 21:18:04 +0800)
+
+     CPU:   rv64imac
+     Model: nuclei,ux600
+     DRAM:  256 MiB
+     Board: Initialized
+     MMC:   spi@10034000:mmc@0: 0
+     In:    console
+     Out:   console
+     Err:   console
+     Net:   No ethernet found.
+     Hit any key to stop autoboot:  0
+     => mmcinfo
+     Device: spi@10034000:mmc@0
+     Manufacturer ID: 2
+     OEM: 544d
+     Name: SA08G
+     Bus Speed: 20000000
+     Mode: MMC legacy
+     Rd Block Len: 512
+     SD version 2.0
+     High Capacity: Yes
+     Capacity: 7.2 GiB
+     Bus Width: 1-bit
+     Erase Group Size: 512 Bytes
+     ~~~
+   
+  2. If SDCard is recognized correctly, please type `fatls mmc 0`, and check whether the following files
+     are listed as below, if you can get the following files in your sdcard, please reformat your sdcard to `Fat32` format, and copy the generated files in *work/boot/* to the root of sdcard, and re-insert the
+     sdcard to SD slot, and retry from step 1.
+
+     **Note:** Please make sure your SDCard is safely injected in your OS, and SDCard is formated to `Fat32`.
+
+     ~~~
+     => fatls mmc 0
+         2594   kernel.dtb   # device tree binary file
+          345   boot.scr     # boot script used by uboot, generated from ./conf/uboot.cmd
+      3052821   uImage.lz4   # lz4 archived kernel image
+      19155960  uInitrd.lz4  # lz4 archived rootfs image
+
+      4 file(s), 0 dir(s)
+     ~~~
+
+  3. If the above steps are all correct, then you can run `boot` command to boot linux, or type commands
+     located in [./conf/uboot.cmd](conf/uboot.cmd).
+
+* The linux kernel and rootfs size is too big, is there any way to reduce it to speed up boot speed?
+
+  If you are familiar with linux and buildroot configuration files, you can directly modify the configuration
+  files located in `conf` folder.
+
+  * *conf/buildroot_initramfs_ux600_config*: The buildroot configuration for UX600
+  * *conf/buildroot_initramfs_ux600fd_config*: The buildroot configuration for UX600FD
+  * *conf/linux_defconfig*: The linux configuration for UX600 and UX600FD
+  * *conf/nuclei_ux600.dts*: The device tree file for UX600
+  * *conf/nuclei_ux600fd.dts*: The device tree file for UX600FD
+
+  If you modified this files directly and want to take effects, you need to `make clean` first, and regenerate
+  boot images.
+
+  You can also try `make buildroot_initramfs-menuconfig` to get a terminal menuconfig to configure the buildroot
+  packages.
+
+  You can also try `make linux-menuconfig` to get a  menuconfig to configure the linux kernel.
+
+* Other possible ways to reduce generated rootfs image size.
+
+  If you are familiar with the generated rootfs files located in `work/buildroot_initramfs_sysroot`, you can
+  manually remove the files you think it is not used, and type `make cleanboot` and then `make bootimages`,
+  you can check the size information generated by the command.
+
+* The best way to learn this project is taking a look at the [Makefile](Makefile) of this project to learn about
+  what is really done in each make target.
+
+* Download *freeloader/freeloader.elf* using Nuclei SDK.
+
+  If you don't want to build the nuclei sdk, you can also download the boot images generated by [github action](https://github.com/Nuclei-Software/nuclei-linux-sdk/actions).
+
+  For example, for `dev_nuclei` branch, you can find the previous built artifacts in https://github.com/Nuclei-Software/nuclei-linux-sdk/actions/runs/358740696.
+
+  Then you can extra the downloaded `bootimages_ux600.zip` and extract `freeloader/freeloader.elf` to your disk,
+  such as `D:/freeloader.elf`.
+
+  Make sure you have followed [steps](https://doc.nucleisys.com/nuclei_sdk/quickstart.html) to setup nuclei sdk
+  development environment, then you can follow steps below to download this `D:/freeloader.elf`.
+
+  ~~~
+  D:\workspace\Sourcecode\nuclei-sdk>setup.bat
+  Setup Nuclei SDK Tool Environment
+  NUCLEI_TOOL_ROOT=D:\Software\NucleiStudio_IDE_202009\NucleiStudio\toolchain
+  
+  D:\workspace\Sourcecode\nuclei-sdk>make clean
+  make -C application/baremetal/helloworld clean
+  make[1]: Entering directory 'D:/workspace/Sourcecode/nuclei-sdk/application/baremetal/helloworld'
+  "Clean all build objects"
+  make[1]: Leaving directory 'D:/workspace/Sourcecode/nuclei-sdk/application/baremetal/helloworld'
+  
+  D:\workspace\Sourcecode\nuclei-sdk>make CORE=ux600 debug
+  make -C application/baremetal/helloworld debug
+  make[1]: Entering directory 'D:/workspace/Sourcecode/nuclei-sdk/application/baremetal/helloworld'
+  .... ....
+  "Compiling  : " ../../../SoC/hbird/Common/Source/system_hbird.c
+  "Compiling  : " main.c
+  "Linking    : " helloworld.elf
+     text    data     bss     dec     hex filename
+     8328     224    2492   11044    2b24 helloworld.elf
+  "Download and debug helloworld.elf"
+  riscv-nuclei-elf-gdb helloworld.elf -ex "set remotetimeout 240" \
+          -ex "target remote | openocd --pipe -f ../../../SoC/hbird/Board/hbird_eval/openocd_hbird.cfg"
+  D:\Software\NucleiStudio_IDE_202009\NucleiStudio\toolchain\gcc\bin\riscv-nuclei-elf-gdb.exe: warning: Couldn't     determine a path for the index cache directory.
+  GNU gdb (GDB) 8.3.0.20190516-git
+  Copyright (C) 2019 Free Software Foundation, Inc.
+  License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+  This is free software: you are free to change and redistribute it.
+  There is NO WARRANTY, to the extent permitted by law.
+  Type "show copying" and "show warranty" for details.
+  This GDB was configured as "--host=i686-w64-mingw32 --target=riscv-nuclei-elf".
+  Type "show configuration" for configuration details.
+  For bug reporting instructions, please see:
+  <http://www.gnu.org/software/gdb/bugs/>.
+  Find the GDB manual and other documentation resources online at:
+      <http://www.gnu.org/software/gdb/documentation/>.
+  
+  For help, type "help".
+  Type "apropos word" to search for commands related to "word"...
+  Reading symbols from helloworld.elf...
+  Remote debugging using | openocd --pipe -f ../../../SoC/hbird/Board/hbird_eval/openocd_hbird.cfg
+  Nuclei OpenOCD, 64-bit Open On-Chip Debugger 0.10.0+dev-00020-g7701266e6-dirty (2020-09-22-07:31)
+  Licensed under GNU GPL v2
+  For bug reports, read
+          http://openocd.org/doc/doxygen/bugs.html
+  --Type <RET> for more, q to quit, c to continue without paging--
+  0x00000000a0005aea in ?? ()
+  (gdb) monitor reset halt
+  JTAG tap: riscv.cpu tap/device found: 0x12050a6d (mfg: 0x536 (Nuclei System Technology Co.,Ltd.), part: 0x2050,     ver: 0x1)
+  (gdb) load D:/freeloader.elf
+  Loading section .text, size 0x831e0 lma 0x20000000
+  Loading section .interp, size 0x20 lma 0x200831e0
+  Loading section .dynsym, size 0x18 lma 0x20083200
+  Loading section .dynstr, size 0xb lma 0x20083218
+  Loading section .hash, size 0x10 lma 0x20083228
+  Loading section .gnu.hash, size 0x1c lma 0x20083238
+  Loading section .dynamic, size 0x110 lma 0x20083258
+  Loading section .got, size 0x8 lma 0x20083368
+  Start address 0x20000000, load size 537447
+  Transfer rate: 22 KB/sec, 13108 bytes/write.
+  (gdb) q
+  A debugging session is active.
+  
+          Inferior 1 [Remote target] will be detached.
+  
+  Quit anyway? (y or n) y
+  Detaching from program: D:\workspace\Sourcecode\nuclei-sdk\application\baremetal\helloworld\helloworld.elf, Remote     target
+  Ending remote debugging.
+  [Inferior 1 (Remote target) detached]
+  make[1]: Leaving directory 'D:/workspace/Sourcecode/nuclei-sdk/application/baremetal/helloworld'
+  ~~~
+
 
 ## Reference
 
