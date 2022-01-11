@@ -17,3 +17,6 @@
 [submodule "u-boot"]
 	path = u-boot
 	url = ../u-boot.git
+[submodule "penglai-linux-driver"]
+	path = penglai-linux-driver
+	url = ../penglai-linux-driver.git
